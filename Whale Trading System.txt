@@ -1,0 +1,201 @@
+//@version=4
+
+//MIT License
+
+//Copyright (c) 2019 user-Noldo
+
+//Permission is hereby granted, free of charge, to any person obtaining a copy
+//of this software and associated documentation files (the "Software"), to deal
+//in the Software without restriction, including without limitation the rights
+//to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+//copies of the Software, and to permit persons to whom the Software is
+//furnished to do so, subject to the following conditions:
+
+//The above copyright notice and this permission notice shall be included in all
+//copies or substantial portions of the Software.
+
+//THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+//IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+//FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+//AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+//LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+//OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+//SOFTWARE.
+
+
+study("Whale Trading System",overlay=true)
+src=close
+
+reverse = false
+lights          = input(title="Barcolor I / 0 ? ", options=["ON", "OFF"], defval="OFF")
+
+lengthMFI   = 52 //  You can use variables instead of integer now !!
+lengthStoch = 52 //  You can use variables instead of integer now !!
+
+smoothK = lengthMFI/4            //  You can use variables instead of integer now !!
+smoothD = lengthStoch/4          //  You can use variables instead of integer now !!
+
+OverSold   = input(20 , minval = 1 , title = "SRSI Buy")
+OverBought = input(80 , minval = 1 , title = "SRSI Sell")
+
+
+// Essential Functions
+// Function Exponential Moving Average 
+
+
+f_ema(_src, _length)=>
+    _length_adjusted = _length < 1 ? 1 : _length
+    _multiplier = 2 / (_length_adjusted + 1)
+    _return  = 0.00
+    _return := na(_return[1]) ? _src : ((_src - _return[1]) * _multiplier) + _return[1]
+
+
+// FUNCTION HIGHEST AND LOWEST  ( All Efforts goes to RicardoSantos )
+
+f_highest(_src, _length)=>
+    _adjusted_length = _length < 1 ? 1 : _length
+    _value = _src
+    for _i = 0 to (_adjusted_length-1)
+        _value := _src[_i] >= _value ? _src[_i] : _value
+    _return = _value
+
+f_lowest(_src, _length)=>
+    _adjusted_length = _length < 1 ? 1 : _length
+    _value = _src
+    for _i = 0 to (_adjusted_length-1)
+        _value := _src[_i] <= _value ? _src[_i] : _value
+    _return = _value
+
+// Function Sum
+
+f_sum(_src , _length) => 
+
+    _output  = 0.00 
+    
+    _length_adjusted = _length < 1 ? 1 : _length
+    
+    for i = 0 to _length_adjusted-1
+        _output := _output + _src[i]
+
+
+// Money Flow Index (MFI)
+
+
+lower = input(20 , type = input.integer , title = "Oversold")   // You can use non integer or mutable variables too !!
+upper = input(80 , type = input.integer , title = "Overbought") // You can use non integer or mutable variables too !!
+
+
+// MFI
+
+upper_s = f_sum(volume * (change(src) <= 0 ? 0 : src), lengthMFI)
+lower_s = f_sum(volume * (change(src) >= 0 ? 0 : src), lengthMFI)
+
+
+_mfi = rsi(upper_s, lower_s)
+
+
+
+// Function Stochastic Oscillator
+
+
+f_stoch(_src , _length) => 
+
+    100 * (_src - f_lowest(f_lowest(_src ,1), _length)) / (f_highest(f_highest(_src , 1), _length) - f_lowest(f_lowest(_src ,1), _length))
+
+
+// Definition : Variables K3 and D
+
+k3 = f_ema(f_stoch(_mfi, lengthStoch), smoothK)
+d = f_ema(k3, smoothD)
+
+positive_condition = k3 > d 
+negative_condition = k3 < d
+
+hist = k3 - d 
+
+// Conditions 
+
+pos_zone = k3 > d 
+neg_zone = k3 < d
+
+pos_moment = crossover(k3,d)
+neg_moment = crossunder(k3,d)
+
+col_bg = pos_moment ? color.teal : neg_moment ? color.maroon : na
+
+
+// Clouds
+
+opthi = f_highest(src , lengthMFI)
+optlo = f_lowest(src  , lengthMFI)
+
+ 
+
+optmid   = (opthi + optlo) / 2
+
+negcloud = src < optmid and neg_zone
+poscloud = src > optmid and pos_zone
+
+col_zone = pos_zone ? color.green : neg_zone ? color.red : na
+
+// Dist Sell
+
+sell_con = false 
+
+hist_down = hist < hist[1]
+bar_up   = (((close[0] - close[1]) / close[1])  * 100) > (0.2)
+
+sell_con := (hist_down and bar_up and poscloud)
+
+// Dist Buy 
+
+buy_con   = false
+
+hist_up   = hist > hist[1]
+bar_down = (((close[0] - close[1]) / close[1])  * 100) < (-0.2)
+
+buy_con := (hist_up and bar_down and negcloud)
+
+
+adj_dist = (sell_con ? color.orange : buy_con ? color.blue : na )
+
+
+col_columns = (pos_zone and  not sell_con ? color.green : pos_zone and sell_con ? color.orange : 
+               neg_zone and  not buy_con  ? color.red   : neg_zone and buy_con  ? color.blue   : na )
+
+pos_size = hist
+zero = 0
+
+// Plot data
+
+plot(pos_size , style = plot.style_columns, linewidth = 2, color = col_columns , transp = 25,title = "Relativity")
+bgcolor(col_bg , transp = 70 , title = "Background Color")
+plot(pos_moment  ? zero :na, style=plot.style_cross, color=color.teal  , linewidth=4, transp=0 ,title = "Distributional Buy Block")
+plot(neg_moment  ? zero :na, style=plot.style_cross, color=color.maroon, linewidth=4, transp=0 ,title = "Distributional Sell Block")
+
+// Barcolor 
+
+_lights = 0.00 
+
+
+if (lights=="ON")
+
+    _lights:= 1.00
+    
+if (lights=="OFF")
+
+    _lights:= -1.00   
+
+
+bcolor_on  = _lights ==  1.00
+bcolor_off = _lights == -1.00
+
+barcolor(sell_con and bcolor_on ? color.orange: buy_con and bcolor_on ? color.blue : na )
+
+// Alerts 
+
+alertcondition(buy_con  , title='Distributional Buy' , message='Distributional Buy')
+alertcondition(sell_con , title='Distributional Sell', message='Distributional Sell')
+alertcondition(pos_moment  , title='Positive area' , message='Long')
+alertcondition(neg_moment  , title='Negative area' , message='Short')
+
